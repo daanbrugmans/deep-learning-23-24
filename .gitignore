@@ -1,14 +1,6 @@
-**/env
-
-# Notebook Viewer Files
-*/__main__.py
-*/fix_notebooks.py
-*/requirements.txt
-*/Table of Contents.html
-*/twoframes.css
-*/twoframes.html
-*/twoframes.js
-*/viewer.py
+env
+Notebook Viewer
+*/FashionMNIST
 
 # Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,python,jupyternotebooks
 # Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,python,jupyternotebooks
