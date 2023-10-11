@@ -216,3 +216,5 @@ pyrightconfig.json
 **/raw/*
 free-spoken-digit-dataset/
 **/training2017/
+
+*.pt
