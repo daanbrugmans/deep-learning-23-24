@@ -25,7 +25,7 @@ def main():
         loss_fn=CrossEntropyLoss(),
         epochs=10,
         device=device_name,
-        name=model_name
+        model_file_name=model_name
     )
 
 
