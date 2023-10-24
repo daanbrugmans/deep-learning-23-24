@@ -12,89 +12,34 @@ from d2l import torch as d2l
 # -----------------------------------------------------------------------------
 # Datasets
 # -----------------------------------------------------------------------------
-
-# TODO unify `get_mnist` and `get_fashion_mnist`
-def get_mnist(batch_size: int) -> dict[str, DataLoader[Any]]:
-    # inspired by assignment 5
-    mnist = MNIST(
-        root=".",
-        download=True,
-        transform=torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(),
-            lambda img: img.flatten()
-        ]))
-
-    # TODO make sure that we only use the train_data for the random split
-    train, validation, _ = torch.utils.data.random_split(
-        mnist, [55000, 5000, 0]
-    )
-
-    return {
-        "train": DataLoader(train, batch_size, shuffle=True),
-        "val": DataLoader(validation, batch_size),
-        "test": DataLoader(mnist.test_data, batch_size)
-    }
-
-
-def get_mini_mnist(batch_size: int) -> dict[str, DataLoader[Any]]:
-    mnist = MNIST(
-        root=".",
-        download=True,
-        transform=torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(),
-            lambda img: img.flatten()
-        ]))
-
-    # TODO make sure that we only use the train_data for the random split
-    train, validation, _ = torch.utils.data.random_split(
-        mnist, [550, 50, len(mnist) - 600]
-    )
-
-    mnist.train = False
-
-    return {
-        "train": DataLoader(train, batch_size, shuffle=True),
-        "val": DataLoader(validation, batch_size),
-        "test": DataLoader(mnist, batch_size)
-    }
-
-
-def get_fashion_mnist(batch_size: int) -> dict[str, DataLoader[Any]]:
-    fashionmnist = FashionMNIST(
-        root=".",
-        download=True,
-        transform=torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor(),
-            lambda img: img.flatten()
-        ]))
-
-    train, validation, _ = torch.utils.data.random_split(
-        fashionmnist.train, [55000, 5000, 0]
-    )
-
-    # train = DataLoader(train, batch_size, shuffle=True)
-    # validation = DataLoader(validation, batch_size)
-    # test = DataLoader(fashionmnist.test_data, batch_size)
-
-    # return train, validation, test
-
-    return {
-        "train": DataLoader(train, batch_size, shuffle=True),
-        "val": DataLoader(validation, batch_size),
-        "test": DataLoader(fashionmnist.test_data, batch_size)
-    }
-
-
 def get_dataset(name: str, batch_size=60) -> tuple[DataLoader, DataLoader, DataLoader]:
+    image_transformations = torchvision.transforms.Compose([
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Lambda(lambda image: torch.flatten(image))
+    ])
+    
     if name == "mnist":
-        return get_mnist(batch_size)
+        train_and_val_data = MNIST(root=".", train=True, download=True, transform=image_transformations)
+        test_data = MNIST(root=".", train=False, download=True, transform=image_transformations)
     elif name == "fashionmnist":
-        return get_fashion_mnist(batch_size)
-    elif name == "mini_mnist":
-        return get_mini_mnist(batch_size)
+        train_and_val_data = FashionMNIST(root=".", train=True, download=True, transform=image_transformations)
+        test_data = FashionMNIST(root=".", train=False, download=True, transform=image_transformations)
+    else:
+        raise ValueError(f"Dataset name {name} was not recognized")
+            
+    train_data_count = 450
+    validation_data_count = 50
+    unused_data_count = len(train_and_val_data) - train_data_count - validation_data_count
 
+    train_data, validation_data, _ = torch.utils.data.random_split(
+        train_and_val_data, [train_data_count, validation_data_count, unused_data_count]
+    )
 
-# TODO: Datasets go here.
+    return {
+        "train": DataLoader(train_data, batch_size, shuffle=True),
+        "val": DataLoader(validation_data, batch_size),
+        "test": DataLoader(test_data, batch_size)
+    }
 
 # -----------------------------------------------------------------------------
 # Network architectures
@@ -119,7 +64,7 @@ def create_network(arch, **kwargs):
     elif arch == 'arch2':
         return create_network_arch2(**kwargs)
     else:
-        raise Exception(f"Unknown architeaacture: {arch}")
+        raise Exception(f"Unknown architecture: {arch}")
 
 
 # -----------------------------------------------------------------------------
@@ -136,9 +81,13 @@ def evaluate_loss(net, data_iter, loss, device):
     for X, y in data_iter:
         X = X.to(device)
         y = y.to(device)
+        
         out = net(X)
+        
         l = loss(out, y)
+        
         metric.add(d2l.reduce_sum(l), d2l.size(l))
+        
     return metric[0] / metric[1]
 
 
