@@ -127,8 +127,8 @@ def evaluate(net, evaluation_set, loss_fn, device):
 
 
 def train(net: nn.Module, data_loaders: Dict[str, DataLoader], optimizer, loss_fn,
-          device: str, model_file_name: str, learning_rate: float = 0.0012, epochs: int = 50000,
-          eval_every_n_epochs=100, graph=True):
+          device: str, model_file_name: str, learning_rate: float = 0.0012, iterations: int = 50000,
+          eval_every_n_iterations=100, graph=True):
     # inspired by assignment 5
     """
     Trains the model net with data from the data_loaders['train'], data_loaders['val'], data_loaders['test'].
@@ -138,71 +138,60 @@ def train(net: nn.Module, data_loaders: Dict[str, DataLoader], optimizer, loss_f
 
     if graph:
         training_progression_animator = d2l.Animator(
-            xlabel='epoch',
+            xlabel='iteration',
             legend=['train loss', 'train accuracy', 'validation loss', 'validation accuracy'],
             figsize=(10, 5)
         )
-    training_progression_timer = {'train': d2l.Timer(), 'val': d2l.Timer()}
     min_val_loss = float("inf")
+    iteration_count = 0
 
-    for epoch in range(epochs):
+    while True:
         # monitor loss, accuracy, number of samples
-        metrics = {'train': d2l.Accumulator(3), 'val': d2l.Accumulator(3)}
+        # metrics = {'train': d2l.Accumulator(3), 'val': d2l.Accumulator(3)}
+        for _, (x, y) in enumerate(data_loaders['train']):
+            iteration_count += 1
+            if iteration_count % eval_every_n_iterations == 0:
+                val_loss, val_acc = evaluate(net, data_loaders['val'], loss_fn, device)
+                train_loss, train_acc = evaluate(net, data_loaders['train'], loss_fn, device)
 
-        for phase in ('train', 'val'):
-            if phase == 'val' and not epoch % eval_every_n_epochs == 0:
-                continue
-            # switch network to train/eval mode
-            net.train(phase == 'train')
-
-            for _, (x, y) in enumerate(data_loaders[phase]):
-                training_progression_timer[phase].start()
-
-                x = x.to(device)
-                y = y.to(device)
-
-                y_hat = net(x)
-
-                loss = loss_fn(y_hat, y)
-
-                if phase == 'train':
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-
-                loss, accuracy = evaluate(net, data_loaders[phase], loss_fn, device)
-                metrics[phase].add(loss * x.shape[0], accuracy * x.shape[0], x.shape[0])
-
-                training_progression_timer[phase].stop()
-
-        if epoch % eval_every_n_epochs == 0:
-            val_loss = metrics['val'][0] / metrics['val'][2]
-            if val_loss < min_val_loss:
-                path = f"checkpoints/model-{model_file_name}-best.pth"
+                path = f"checkpoints/model-{model_file_name}-{iteration_count}.pth"
                 torch.save(net.state_dict(), path)
-                min_val_loss = val_loss
-            path = f"checkpoints/model-{model_file_name}-{epoch}.pth"
-            torch.save(net.state_dict(), path)
+                if val_loss < min_val_loss:
+                    path = f"checkpoints/model-{model_file_name}-best.pth"
+                    torch.save(net.state_dict(), path)
+                    min_val_loss = val_loss
 
-            if graph:
-                training_progression_animator.add(epoch, (
-                    metrics['train'][0] / metrics['train'][2],
-                    metrics['train'][1] / metrics['train'][2],
-                    val_loss,
-                    metrics['val'][1] / metrics['val'][2]
-                ))
+                if graph:
+                    training_progression_animator.add(iteration_count, (train_loss, train_acc, val_loss, val_acc))
+
+            x = x.to(device)
+            y = y.to(device)
+
+            y_hat = net(x)
+
+            loss = loss_fn(y_hat, y)
+            accuracy = d2l.accuracy(y_hat, y)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # metrics['train'].add(loss * x.shape[0], accuracy, x.shape[0])
+
+            # if iteration_count % eval_every_n_iterations == 0 and graph:
+            # training_progression_animator.add(iteration_count, (
+            #     metrics['train'][0] / metrics['train'][2],
+            #     metrics['train'][1] / metrics['train'][2]
+            # ))
+            if iteration_count >= iterations:
+                break
         else:
-            if graph:
-                training_progression_animator.add(epoch, (
-                    metrics['train'][0] / metrics['train'][2],
-                    metrics['train'][1] / metrics['train'][2]
-                ))
+            continue
+        break
 
     test_loss, test_acc = evaluate(net, data_loaders['test'], loss_fn, device)
     val_loss, val_acc = evaluate(net, data_loaders['val'], loss_fn, device)
-
-    train_loss = metrics['train'][0] / metrics['train'][2]
-    train_acc = metrics['train'][1] / metrics['train'][2]
+    train_loss, train_acc = evaluate(net, data_loaders['train'], loss_fn, device)
 
     path = f"checkpoints/model-{model_file_name}-final.pth"
     torch.save(net.state_dict(), path)
@@ -275,5 +264,3 @@ def _experiment_section_1(arch: str, dataset: str, optim, lr, fc_pruning_rate, c
     name = f'experiment1-{arch}-{dataset}'
 
     train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, 50, 5)
-
-

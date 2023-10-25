@@ -17,14 +17,14 @@ def load(path: str):
 
 def train(graph=True):
     arch_name = "lenet"
-    dataset_name = "fashionmnist"
+    dataset_name = "mnist"
     run_name = "1"
     lunar_phase_name = lunar_phase.get_lunar_phase_name()
     model_name = f"{arch_name}-{dataset_name}-{run_name}-{lunar_phase_name}"
     
     device_name = try_gpu()
     net = common.create_network(arch_name)
-    data_loaders = common.get_datasets(dataset_name, used_data=0.01)
+    data_loaders = common.get_datasets(dataset_name)
     
     common.train(
         net,
@@ -32,10 +32,10 @@ def train(graph=True):
         optimizer=Adam,
         learning_rate=0.0012,
         loss_fn=CrossEntropyLoss(),
-        epochs=10,
+        iterations=1000,
         device=device_name,
         model_file_name=model_name,
-        eval_every_n_epochs=2,
+        eval_every_n_iterations=100,
         graph=graph
     )
     return net
