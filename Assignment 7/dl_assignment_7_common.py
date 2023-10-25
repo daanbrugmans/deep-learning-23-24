@@ -77,11 +77,20 @@ def create_arch2():
 def create_network(arch, **kwargs):
     # TODO: Change this function for the architectures you want to support
     if arch == 'lenet':
-        return create_lenet(**kwargs)
+        net = create_lenet(**kwargs)
     elif arch == 'arch2':
-        return create_arch2(**kwargs)
+        net = create_arch2(**kwargs)
     else:
         raise ValueError(f"Architecture name {arch} was not recognized")
+    return net
+
+
+# def get_weight_init_function(seed):
+#     def init_weights_normal(m):
+#         # TODO support other layer types
+#         if isinstance(m, nn.Linear):
+#             torch.nn.init.normal_(m.weight, mean=0.0, std=1.0)
+#             torch.nn.init.zeros_(m.bias)
 
 
 # -----------------------------------------------------------------------------
@@ -183,6 +192,9 @@ def train(net: nn.Module, data_loaders: Dict[str, DataLoader], optimizer: torch.
 
     train_loss = metrics['train'][0] / metrics['train'][2]
     train_acc = metrics['train'][1] / metrics['train'][2]
+
+    path = f"checkpoints/model-{model_file_name}-final.pth"
+    torch.save(net.state_dict(), path)
 
     print(f'train loss {train_loss:.3f}, train accuracy {train_acc:.3f}, '
           f'val loss {val_loss:.3f}, val accuracy {val_acc:.3f}, '

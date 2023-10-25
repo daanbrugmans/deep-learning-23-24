@@ -1,3 +1,5 @@
+import torch
+
 import dl_assignment_7_common as common
 import lunar_phase
 
@@ -6,7 +8,14 @@ from torch.nn import CrossEntropyLoss
 from d2l.torch import try_gpu
 
 
-def main():
+def load(path: str):
+    arch_name = "lenet"
+    model = common.create_network(arch_name)
+    model.load_state_dict(torch.load(path))
+    return model
+
+
+def train():
     arch_name = "lenet"
     dataset_name = "fashionmnist"
     run_name = "1"
@@ -31,4 +40,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    train()
