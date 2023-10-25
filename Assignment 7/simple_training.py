@@ -15,7 +15,7 @@ def main():
     
     device_name = try_gpu()
     net = common.create_network(arch_name)
-    data_loaders = common.get_dataset(dataset_name)
+    data_loaders = common.get_dataset(dataset_name, used_data=0.01)
     
     common.train(
         net,
@@ -25,7 +25,8 @@ def main():
         loss_fn=CrossEntropyLoss(),
         epochs=10,
         device=device_name,
-        model_file_name=model_name
+        model_file_name=model_name,
+        eval_every_n_epochs=2
     )
 
 
