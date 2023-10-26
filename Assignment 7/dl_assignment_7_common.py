@@ -90,14 +90,6 @@ def create_network(arch, **kwargs):
     return net
 
 
-# def get_weight_init_function(seed):
-#     def init_weights_normal(m):
-#         # TODO support other layer types
-#         if isinstance(m, nn.Linear):
-#             torch.nn.init.normal_(m.weight, mean=0.0, std=1.0)
-#             torch.nn.init.zeros_(m.bias)
-
-
 # -----------------------------------------------------------------------------
 # Training and testing loops
 # -----------------------------------------------------------------------------
@@ -187,19 +179,11 @@ def train(net: nn.Module, data_loaders: Dict[str, DataLoader], optimizer, loss_f
                 y_hat = net(x)
 
                 loss = loss_fn(y_hat, y)
-                # accuracy = d2l.accuracy(y_hat, y)
 
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                # metrics['train'].add(loss * x.shape[0], accuracy, x.shape[0])
-
-                # if iteration_count % eval_every_n_iterations == 0 and graph:
-                # training_progression_animator.add(iteration_count, (
-                #     metrics['train'][0] / metrics['train'][2],
-                #     metrics['train'][1] / metrics['train'][2]
-                # ))
                 if iteration_count >= iterations:
                     break
             else:
@@ -219,7 +203,8 @@ def train(net: nn.Module, data_loaders: Dict[str, DataLoader], optimizer, loss_f
 
     print(f'train loss {train_loss:.3f}, train accuracy {train_acc:.3f}, '
           f'val loss {val_loss:.3f}, val accuracy {val_acc:.3f}, '
-          f'test loss {test_loss:.3f}, test accuracy {test_acc:.3f}')
+          f'test loss {test_loss:.3f}, test accuracy {test_acc:.3f}, '
+          f'min val loss at iteration {iteration_min_val_loss}')
 
     return train_loss, train_acc, val_loss, val_acc, test_loss, test_acc
 
@@ -278,7 +263,7 @@ def is_last(i: Iterator):
 
 
 def experiment_section_1(arch: str, dataset: str, optim, lr, fc_pruning_rate, conv_pruning_rate):
-    datasets = get_datasets(dataset, used_data=0.1)
+    datasets = get_datasets(dataset)
     net = create_network(arch)
     device = try_gpu()
 
