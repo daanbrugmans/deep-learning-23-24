@@ -1,6 +1,8 @@
 # This is a file where you should put your own functions
 import math
+import csv
 from typing import Dict, Any, Iterator
+from dataclasses import dataclass
 
 from d2l.torch import try_gpu
 from torch import nn
@@ -9,6 +11,7 @@ from torchvision.datasets import MNIST, FashionMNIST
 from torch.utils.data import DataLoader
 import torchvision
 import torch
+import torch.nn.utils.prune
 from d2l import torch as d2l
 
 
@@ -62,11 +65,11 @@ def get_datasets(name: str, batch_size=60, used_data=1.0) -> dict[str, DataLoade
 # -----------------------------------------------------------------------------
 
 # TODO: Define network architectures here
-def _create_lenet(num_classes=10):
+def _create_lenet(in_features=784, num_classes=10):
     return nn.Sequential(
         # I could not find the activation function used in the paper, but other implementations
         # of LeNet seem to use sigmoid
-        nn.LazyLinear(300), nn.Sigmoid(),
+        nn.Linear(in_features, 300), nn.Sigmoid(),
         nn.Linear(300, 100), nn.Sigmoid(),
         nn.Linear(100, num_classes)  # , nn.Softmax(dim=0)
     )
@@ -128,7 +131,7 @@ def evaluate(net, evaluation_set, loss_fn, device):
 
 def train(net: nn.Module, data_loaders: Dict[str, DataLoader], optimizer, loss_fn,
           device: str, model_file_name: str, learning_rate: float = 0.0012, iterations: int = 50000,
-          eval_every_n_iterations=100, graph=True):
+          eval_every_n_iterations=100, graph=True, keep_checkpoints=True):
     # inspired by assignment 5
     """
     Trains the model net with data from the data_loaders['train'], data_loaders['val'], data_loaders['test'].
@@ -143,55 +146,73 @@ def train(net: nn.Module, data_loaders: Dict[str, DataLoader], optimizer, loss_f
             figsize=(10, 5)
         )
     min_val_loss = float("inf")
+    iteration_min_val_loss = 0
     iteration_count = 0
 
-    while True:
-        # monitor loss, accuracy, number of samples
-        # metrics = {'train': d2l.Accumulator(3), 'val': d2l.Accumulator(3)}
-        for _, (x, y) in enumerate(data_loaders['train']):
-            iteration_count += 1
-            if iteration_count % eval_every_n_iterations == 0:
-                val_loss, val_acc = evaluate(net, data_loaders['val'], loss_fn, device)
-                train_loss, train_acc = evaluate(net, data_loaders['train'], loss_fn, device)
+    with open(f'checkpoints/{model_file_name}.csv', 'x', newline='') as csvfile:
+        fieldnames = ['iteration', 'train_loss', 'train_acc', 'val_loss', 'val_acc', 'test_loss', 'test_acc']
+        csvwriter = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        csvwriter.writeheader()
 
-                path = f"checkpoints/model-{model_file_name}-{iteration_count}.pth"
-                torch.save(net.state_dict(), path)
-                if val_loss < min_val_loss:
-                    path = f"checkpoints/model-{model_file_name}-best.pth"
-                    torch.save(net.state_dict(), path)
-                    min_val_loss = val_loss
+        while True:
+            # monitor loss, accuracy, number of samples
+            # metrics = {'train': d2l.Accumulator(3), 'val': d2l.Accumulator(3)}
+            for _, (x, y) in enumerate(data_loaders['train']):
+                iteration_count += 1
+                if iteration_count % eval_every_n_iterations == 0:
+                    test_loss, test_acc = evaluate(net, data_loaders['test'], loss_fn, device)
+                    val_loss, val_acc = evaluate(net, data_loaders['val'], loss_fn, device)
+                    train_loss, train_acc = evaluate(net, data_loaders['train'], loss_fn, device)
 
-                if graph:
-                    training_progression_animator.add(iteration_count, (train_loss, train_acc, val_loss, val_acc))
+                    csvwriter.writerow({'iteration': iteration_count, 'train_loss': train_loss, 'train_acc': train_acc,
+                                        'val_loss': val_loss, 'val_acc': val_acc, 'test_loss': test_loss,
+                                        'test_acc': test_acc})
 
-            x = x.to(device)
-            y = y.to(device)
+                    if keep_checkpoints:
+                        path = f"checkpoints/model-{model_file_name}-{iteration_count}.pth"
+                        torch.save(net.state_dict(), path)
 
-            y_hat = net(x)
+                    if val_loss < min_val_loss:
+                        path = f"checkpoints/model-{model_file_name}-best.pth"
+                        torch.save(net.state_dict(), path)
+                        min_val_loss = val_loss
+                        iteration_min_val_loss = iteration_count
 
-            loss = loss_fn(y_hat, y)
-            accuracy = d2l.accuracy(y_hat, y)
+                    if graph:
+                        training_progression_animator.add(iteration_count, (train_loss, train_acc, val_loss, val_acc))
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                x = x.to(device)
+                y = y.to(device)
 
-            # metrics['train'].add(loss * x.shape[0], accuracy, x.shape[0])
+                y_hat = net(x)
 
-            # if iteration_count % eval_every_n_iterations == 0 and graph:
-            # training_progression_animator.add(iteration_count, (
-            #     metrics['train'][0] / metrics['train'][2],
-            #     metrics['train'][1] / metrics['train'][2]
-            # ))
-            if iteration_count >= iterations:
-                break
-        else:
-            continue
-        break
+                loss = loss_fn(y_hat, y)
+                # accuracy = d2l.accuracy(y_hat, y)
 
-    test_loss, test_acc = evaluate(net, data_loaders['test'], loss_fn, device)
-    val_loss, val_acc = evaluate(net, data_loaders['val'], loss_fn, device)
-    train_loss, train_acc = evaluate(net, data_loaders['train'], loss_fn, device)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                # metrics['train'].add(loss * x.shape[0], accuracy, x.shape[0])
+
+                # if iteration_count % eval_every_n_iterations == 0 and graph:
+                # training_progression_animator.add(iteration_count, (
+                #     metrics['train'][0] / metrics['train'][2],
+                #     metrics['train'][1] / metrics['train'][2]
+                # ))
+                if iteration_count >= iterations:
+                    break
+            else:
+                continue
+            break
+
+        test_loss, test_acc = evaluate(net, data_loaders['test'], loss_fn, device)
+        val_loss, val_acc = evaluate(net, data_loaders['val'], loss_fn, device)
+        train_loss, train_acc = evaluate(net, data_loaders['train'], loss_fn, device)
+
+        csvwriter.writerow({'iteration': iteration_count, 'train_loss': train_loss, 'train_acc': train_acc,
+                            'val_loss': val_loss, 'val_acc': val_acc, 'test_loss': test_loss,
+                            'test_acc': test_acc})
 
     path = f"checkpoints/model-{model_file_name}-final.pth"
     torch.save(net.state_dict(), path)
@@ -256,11 +277,50 @@ def is_last(i: Iterator):
     yield last, False
 
 
-def _experiment_section_1(arch: str, dataset: str, optim, lr, fc_pruning_rate, conv_pruning_rate):
+def experiment_section_1(arch: str, dataset: str, optim, lr, fc_pruning_rate, conv_pruning_rate):
     datasets = get_datasets(dataset, used_data=0.1)
     net = create_network(arch)
     device = try_gpu()
 
-    name = f'experiment1-{arch}-{dataset}'
+    torch.manual_seed(1)
+    name = f'experiment1-{arch}-{dataset}-{fc_pruning_rate:.3f}-{conv_pruning_rate:.3f}-random'
+    prune_random(net, fc_pruning_rate)
+    train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, graph=False, keep_checkpoints=False)
 
-    train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, 50, 5)
+    torch.manual_seed(2)
+    net = create_network(arch)
+    name = f'experiment1-{arch}-{dataset}-{fc_pruning_rate:.3f}-{conv_pruning_rate:.3f}-l1-source'
+    train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, iterations=5000, graph=False,
+          keep_checkpoints=False)
+    prune(net, fc_pruning_rate)
+    net_sparse = create_network(arch)
+    net_sparse = net_sparse.to(device)
+    copy_prune(net, net_sparse)
+    name = f'experiment1-{arch}-{dataset}-{fc_pruning_rate:.3f}-{conv_pruning_rate:.3f}-l1-target'
+    train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, graph=False, keep_checkpoints=False)
+
+
+@dataclass
+class StatisticsExperiment1:
+    arch: str
+    dataset: str
+    prune_strategy: str
+    pruned_weights: float
+    early_stop_iteration: int
+    acc_at_early_stop: float
+
+
+def read_stats(pruned_weights, arch: str, dataset: str, prune_strategy: str):
+    file = f'checkpoints/experiment1-{arch}-{dataset}-{pruned_weights:.3f}-0.000-{prune_strategy}.csv'
+    with open(file, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        min_val_loss = float('inf')
+        early_stop_iteration = 0
+        acc_at_early_stop = 0
+        for row in reader:
+            if float(row['val_loss']) < min_val_loss:
+                early_stop_iteration = int(row['iteration'])
+                min_val_loss = float(row['val_loss'])
+                acc_at_early_stop = float(row['test_acc'])
+
+    return StatisticsExperiment1(arch, dataset, prune_strategy, pruned_weights, early_stop_iteration, acc_at_early_stop)
