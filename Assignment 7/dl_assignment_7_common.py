@@ -1,9 +1,10 @@
 # This is a file where you should put your own functions
 import math
 import csv
-from typing import Dict, Any, Iterator
+from typing import Dict, Any, Iterator, List
 from dataclasses import dataclass
 
+import numpy as np
 from d2l.torch import try_gpu
 from torch import nn
 from torch.nn import CrossEntropyLoss
@@ -262,27 +263,32 @@ def is_last(i: Iterator):
     yield last, False
 
 
-def experiment_section_1(arch: str, dataset: str, optim, lr, fc_pruning_rate, conv_pruning_rate):
+def experiment_section_1(arch: str, dataset: str, optim, lr, fc_pruning_rate, conv_pruning_rate, trails):
     datasets = get_datasets(dataset)
-    net = create_network(arch)
     device = try_gpu()
+    common_name = f'experiment1-{arch}-{dataset}-{fc_pruning_rate:.3f}-{conv_pruning_rate:.3f}'
+    iterations = 50_000
 
-    torch.manual_seed(1)
-    name = f'experiment1-{arch}-{dataset}-{fc_pruning_rate:.3f}-{conv_pruning_rate:.3f}-random'
-    prune_random(net, fc_pruning_rate)
-    train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, graph=False, keep_checkpoints=False)
+    for trail in range(trails):
+        torch.manual_seed(trail)
+        net = create_network(arch)
+        name = f'{common_name}-one-shot-{trail}'
+        prune_random(net, fc_pruning_rate)
+        train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, iterations=iterations, graph=False,
+              keep_checkpoints=False)
 
-    torch.manual_seed(2)
-    net = create_network(arch)
-    name = f'experiment1-{arch}-{dataset}-{fc_pruning_rate:.3f}-{conv_pruning_rate:.3f}-l1-source'
-    train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, iterations=5000, graph=False,
-          keep_checkpoints=False)
-    prune(net, fc_pruning_rate)
-    net_sparse = create_network(arch)
-    net_sparse = net_sparse.to(device)
-    copy_prune(net, net_sparse)
-    name = f'experiment1-{arch}-{dataset}-{fc_pruning_rate:.3f}-{conv_pruning_rate:.3f}-l1-target'
-    train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, graph=False, keep_checkpoints=False)
+        torch.manual_seed(trail + trails)
+        net = create_network(arch)
+        name = f'{common_name}-l1-source-{trail}'
+        train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, iterations=int(iterations / 10), graph=False,
+              keep_checkpoints=False)
+        prune(net, fc_pruning_rate)
+        net_sparse = create_network(arch)
+        net_sparse = net_sparse.to(device)
+        copy_prune(net, net_sparse)
+        name = f'{common_name}-l1-target-{trail}'
+        train(net, datasets, optim, CrossEntropyLoss(), device, name, lr, iterations=iterations, graph=False,
+              keep_checkpoints=False)
 
 
 @dataclass
@@ -295,8 +301,8 @@ class StatisticsExperiment1:
     acc_at_early_stop: float
 
 
-def read_stats(pruned_weights, arch: str, dataset: str, prune_strategy: str):
-    file = f'checkpoints/experiment1-{arch}-{dataset}-{pruned_weights:.3f}-0.000-{prune_strategy}.csv'
+def read_stats_ex1(pruned_weights, arch: str, dataset: str, prune_strategy: str, trail: int):
+    file = f'checkpoints/experiment1-{arch}-{dataset}-{pruned_weights:.3f}-0.000-{prune_strategy}-{trail}.csv'
     with open(file, 'r') as csvfile:
         reader = csv.DictReader(csvfile)
         min_val_loss = float('inf')
@@ -309,3 +315,161 @@ def read_stats(pruned_weights, arch: str, dataset: str, prune_strategy: str):
                 acc_at_early_stop = float(row['test_acc'])
 
     return StatisticsExperiment1(arch, dataset, prune_strategy, pruned_weights, early_stop_iteration, acc_at_early_stop)
+
+
+def plot_experiment_1():
+    import matplotlib.pyplot as plt
+
+    pr_rates = [1, 0.411, 0.169, 0.070, 0.029, 0.012, 0.005, 0.002]
+    pr_rates_percentage = [pr_rate * 100 for pr_rate in pr_rates]
+    pr_rates_percentage_str = [f'{pr_rate:.2f}' for pr_rate in pr_rates_percentage]
+    num_trails = 1
+
+    fig, (iter_plt, acc_plt) = plt.subplots(1, 2, figsize=(12, 5))
+
+    iter_plt.set_ylabel('Early-Stop Iteration (Val.)')
+    iter_plt.set_xlabel('Percent of Weights Remaining')
+    iter_plt.set_xlim(110, .1)
+    iter_plt.set_xscale('log')
+    iter_plt.set_xticks(pr_rates_percentage, pr_rates_percentage_str)
+
+    acc_plt.set_ylabel('Accuracy at Early-Stop (Test)')
+    acc_plt.set_xlabel('Percent of Weights Remaining')
+    acc_plt.set_xlim(110, .1)
+    acc_plt.set_ylim(.9, 1)
+    acc_plt.set_xscale('log')
+    acc_plt.set_xticks(pr_rates_percentage, pr_rates_percentage_str)
+
+    for strategy in ['one-shot', 'l1-target']:
+        x = []
+        early_stop = []
+        early_stop_err = [[], []]
+        acc = []
+        acc_err = [[], []]
+        for pr_rate in pr_rates:
+            sum_early_stop = 0
+            min_early_stop = float('inf')
+            max_early_stop = float('-inf')
+
+            sum_acc = 0
+            min_acc = float('inf')
+            max_acc = float('-inf')
+            for trail in range(num_trails):
+                stats = read_stats_ex1(1 - pr_rate, 'lenet', 'mnist', strategy, trail)
+
+                sum_early_stop += stats.early_stop_iteration
+                min_early_stop = min(stats.early_stop_iteration, min_early_stop)
+                max_early_stop = max(stats.early_stop_iteration, max_early_stop)
+
+                sum_acc += stats.acc_at_early_stop
+                min_acc = min(stats.acc_at_early_stop, min_acc)
+                max_acc = max(stats.acc_at_early_stop, min_acc)
+
+            mean_early_stop = sum_early_stop / num_trails
+            mean_acc = sum_acc / num_trails
+
+            x.append(pr_rate * 100)
+            acc.append(mean_acc)
+            acc_err[0].append(mean_acc - min_acc)
+            acc_err[1].append(max_acc - mean_acc)
+            early_stop.append(mean_early_stop)
+            early_stop_err[0].append(mean_early_stop - min_early_stop)
+            early_stop_err[1].append(max_early_stop - mean_early_stop)
+
+        iter_plt.errorbar(x, early_stop, early_stop_err, label=strategy)
+        acc_plt.plot(x, acc, acc_err, label=strategy)
+
+    iter_plt.legend()
+    acc_plt.legend()
+
+
+def iterative_pruning(arch: str, data: str, j: int, n: int, pruning_rate: float, trails=5):
+    from torch.optim.adam import Adam
+
+    for trail in range(trails):
+        torch.manual_seed(trail)
+        net = create_network(arch)
+        datasets = get_datasets(data)
+        device = try_gpu()
+        common_name = f'experiment2-{arch}-{data}-{pruning_rate:.3f}-trail{trail}'
+
+        for i in range(n):
+            name = f'{common_name}-prune_iter{i}'
+            train(net, datasets, Adam, CrossEntropyLoss(), device, name, iterations=j, keep_checkpoints=False,
+                  graph=False)
+            # FIXME I guess we do not add additional pruning here, but just reevaluate a new pruning
+            prune(net, pruning_rate / n)
+            net_old = net
+            net = create_network(arch)
+            net = net.to(device)
+            copy_prune(net_old, net)
+
+        name = f'{common_name}-pruned'
+        train(net, datasets, Adam, CrossEntropyLoss(), device, name, iterations=20_000, keep_checkpoints=False,
+              graph=False)
+
+
+@dataclass
+class StatisticsExperiment2:
+    arch: str
+    dataset: str
+    pruned_weights: float
+    iterations: np.array
+    test_acc: np.array
+
+
+def read_stats_ex2(pruned_weights, arch: str, dataset: str, trail: int):
+    file = f'checkpoints/experiment2-{arch}-{dataset}-{pruned_weights:.3f}-trail{trail}-pruned.csv'
+    # file = f'checkpoints/experiment2-{arch}-{dataset}-{pruned_weights:.3f}-pruned.csv'
+    with open(file, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        iterations = []
+        test_acc = []
+        for row in reader:
+            iterations.append(row['iteration'])
+            test_acc.append(row['test_acc'])
+
+    return StatisticsExperiment2(arch, dataset, pruned_weights, np.array(iterations), np.array(test_acc, dtype=float))
+
+
+def plot_iterative_pruning():
+    import matplotlib.pyplot as plt
+
+    pr_rates = [1, 0.513, 0.211, 0.07, 0.036, 0.019]
+    # pr_rates = [1, 0.411, 0.169, 0.070, 0.029, 0.012, 0.005, 0.002]
+    num_trails = 5
+    num_train_iterations = 20_000
+    data_points = int(num_train_iterations / 100 + 1)
+
+    fig, (plt1) = plt.subplots(1, 1, figsize=(12, 12))
+
+    plt1.set_ylabel('Test accuracy')
+    plt1.set_xlabel('Training Iterations')
+    plt1.set_ylim(0.94, 0.99)
+
+    for pr_rate in pr_rates:
+        x = []
+        acc_err = [[], []]
+        acc_err_cleared = [np.zeros(data_points, dtype=float), np.zeros(data_points, dtype=float)]
+
+        sum_acc = np.zeros(data_points, dtype=float)
+        min_acc = np.ones(data_points, dtype=float) * float('inf')
+        max_acc = np.ones(data_points, dtype=float) * float('-inf')
+        for trail in range(num_trails):
+            stats = read_stats_ex2(1 - pr_rate, 'lenet', 'mnist', trail)
+
+            sum_acc = np.add(sum_acc, stats.test_acc)
+            min_acc = np.fmin(stats.test_acc, min_acc)
+            max_acc = np.fmax(stats.test_acc, max_acc)
+            x = stats.iterations
+
+        mean_acc = sum_acc / num_trails
+
+        acc_err[0] = mean_acc - min_acc
+        acc_err[1] = max_acc - mean_acc
+        acc_err_cleared[0][::10] = acc_err[0][::10]
+        acc_err_cleared[1][::10] = acc_err[1][::10]
+
+        plt1.errorbar(x, mean_acc, acc_err_cleared, label=f'{(pr_rate * 100):.3f}')
+
+    plt1.legend()
