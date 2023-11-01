@@ -323,7 +323,7 @@ def plot_experiment_1():
     pr_rates = [1, 0.411, 0.169, 0.070, 0.029, 0.012, 0.005, 0.002]
     pr_rates_percentage = [pr_rate * 100 for pr_rate in pr_rates]
     pr_rates_percentage_str = [f'{pr_rate:.2f}' for pr_rate in pr_rates_percentage]
-    num_trails = 1
+    num_trails = 5
 
     fig, (iter_plt, acc_plt) = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -383,15 +383,15 @@ def plot_experiment_1():
     acc_plt.legend()
 
 
-def iterative_pruning(arch: str, data: str, j: int, n: int, pruning_rate: float, trails=5):
+def iterative_pruning(arch: str, data: str, j: int, n: int, pruning_rate: float, trials=5):
     from torch.optim.adam import Adam
 
-    for trail in range(trails):
-        torch.manual_seed(trail)
+    for trial in range(trials):
+        torch.manual_seed(trial)
         net = create_network(arch)
         datasets = get_datasets(data)
         device = try_gpu()
-        common_name = f'experiment2-{arch}-{data}-{pruning_rate:.3f}-trail{trail}'
+        common_name = f'experiment2-{arch}-{data}-{pruning_rate:.3f}-trial{trial}'
 
         for i in range(n):
             name = f'{common_name}-prune_iter{i}'
