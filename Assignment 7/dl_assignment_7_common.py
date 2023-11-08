@@ -9,6 +9,7 @@ from d2l.torch import try_gpu
 from torch import nn
 from torch.nn import CrossEntropyLoss
 from torchvision.datasets import MNIST, FashionMNIST
+from torchvision.datasets.cifar import CIFAR10
 from torch.utils.data import DataLoader
 import torchvision
 import torch
@@ -37,6 +38,9 @@ def get_datasets(name: str, batch_size=60, used_data=1.0) -> dict[str, DataLoade
     elif name == "fashionmnist":
         train_and_val_data = FashionMNIST(root=".", train=True, download=True, transform=image_transformations)
         test_data = FashionMNIST(root=".", train=False, download=True, transform=image_transformations)
+    elif name == 'cifar10':
+        train_and_val_data = CIFAR10(root=".", train=True, download=True, transform=torchvision.transforms.ToTensor())
+        test_data = CIFAR10(root=".", train=False, download=True, transform=torchvision.transforms.ToTensor())
     else:
         raise ValueError(f"Dataset name {name} was not recognized")
 
@@ -76,16 +80,16 @@ def _create_lenet(in_features=784, num_classes=10):
     )
 
 
-def _create_arch2():
-    raise NotImplementedError()
+def _create_resnet18():
+    return torchvision.models.resnet18(num_classes=10)
 
 
 def create_network(arch, **kwargs):
     # TODO: Change this function for the architectures you want to support
     if arch == 'lenet':
         net = _create_lenet(**kwargs)
-    elif arch == 'arch2':
-        net = _create_arch2()
+    elif arch == 'resnet18':
+        net = _create_resnet18()
     else:
         raise ValueError(f"Architecture name {arch} was not recognized")
     return net
@@ -473,3 +477,45 @@ def plot_iterative_pruning():
         plt1.errorbar(x, mean_acc, acc_err_cleared, label=f'{(pr_rate * 100):.3f}')
 
     plt1.legend()
+
+
+def global_pruning(net: nn.Module, p: float):
+    parameters_to_prune = []
+    for layer in net.children():
+        if isinstance(layer, nn.Linear) or isinstance(layer, nn.Conv2d):
+            parameters_to_prune.append((layer, 'weight'))
+
+    torch.nn.utils.prune.global_unstructured(
+        parameters_to_prune,
+        pruning_method=torch.nn.utils.prune.L1Unstructured,
+        amount=p,
+    )
+
+
+# TODO merge with iterative_pruning method
+def iterative_global_pruning(arch: str, data: str, j: int, n: int, pruning_rate: float, trials=5, rand_reinit=False):
+    from torch.optim.adam import Adam
+
+    for trial in range(trials):
+        torch.manual_seed(trial)
+        net = create_network(arch)
+        datasets = get_datasets(data)
+        device = try_gpu()
+        common_name = f'experiment3-{arch}-{data}-{pruning_rate:.3f}-trial{trial}-rand_reinit={rand_reinit}'
+
+        for i in range(n):
+            name = f'{common_name}-prune_iter{i}'
+            train(net, datasets, Adam, CrossEntropyLoss(), device, name, iterations=j, keep_checkpoints=False,
+                  graph=False)
+            # FIXME I guess we do not add additional pruning here, but just reevaluate a new pruning
+            global_pruning(net, pruning_rate / n)
+            net_old = net
+            if rand_reinit:
+                torch.manual_seed(trial + trials)
+            net = create_network(arch)
+            net = net.to(device)
+            copy_prune(net_old, net)
+
+        name = f'{common_name}-pruned'
+        train(net, datasets, Adam, CrossEntropyLoss(), device, name, iterations=30_000, keep_checkpoints=False,
+              graph=False)
