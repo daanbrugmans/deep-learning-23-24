@@ -519,3 +519,59 @@ def iterative_global_pruning(arch: str, data: str, j: int, n: int, pruning_rate:
         name = f'{common_name}-pruned'
         train(net, datasets, Adam, CrossEntropyLoss(), device, name, iterations=30_000, keep_checkpoints=False,
               graph=False)
+
+
+def read_stats_ex3(arch: str, dataset: str, pr_rate: float, trail: int, rand_reinit: bool):
+    filename = f'checkpoints/experiment3-{arch}-{dataset}-{pr_rate:.3f}-trial{trail}-rand_reinit={rand_reinit}-pruned.csv'
+    with open(filename, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        iterations = []
+        test_acc = []
+        for row in reader:
+            iterations.append(row['iteration'])
+            test_acc.append(row['test_acc'])
+
+    return StatisticsExperiment2(arch, dataset, pr_rate, np.array(iterations), np.array(test_acc, dtype=float))
+
+
+def plot_global_pruning():
+    import matplotlib.pyplot as plt
+
+    pr_rates = [1, 0.417, 0.178, 0.08]
+    pr_rates_inverted = [1 - pr_rate for pr_rate in pr_rates]
+    num_trails = 3
+    plot_iterations = [10_000, 20_000, 30_000]
+    pr_rates_percentage = [pr_rate * 100 for pr_rate in pr_rates]
+    pr_rates_percentage_str = [f'{pr_rate:.2f}' for pr_rate in pr_rates_percentage]
+
+    fig, plts = plt.subplots(3, 1, figsize=(6, 18))
+
+    for i, plt in enumerate(plts):
+        plt.set_ylabel(f'Test accuracy {plot_iterations[i]}')
+        plt.set_xlabel('Percent of Weights Remaining')
+        plt.set_xscale('log')
+        print(pr_rates_percentage_str)
+        plt.set_xticks(pr_rates, pr_rates_percentage_str)
+        # plt.set_ylim(0.8, 1.)
+        x = []
+        mean_acc = []
+        acc_err = [[], []]
+        for pr_rate in pr_rates:
+            sum_acc = 0
+            min_acc = float('inf')
+            max_acc = float('-inf')
+            for trail in range(num_trails):
+                stats = read_stats_ex3('resnet18', 'cifar10', 1 - pr_rate, trail, False)
+
+                sum_acc += stats.test_acc[((i + 1) * 100) - 1]
+                min_acc = min(min_acc, stats.test_acc[((i + 1) * 100) - 1])
+                max_acc = max(max_acc, stats.test_acc[((i + 1) * 100) - 1])
+
+            x.append(pr_rate)
+            mean_acc.append(sum_acc / num_trails)
+
+            acc_err[0].append((sum_acc / num_trails) - min_acc)
+            acc_err[1].append(max_acc - (sum_acc / num_trails))
+
+        plt.errorbar(x, mean_acc, acc_err)
+        plt.legend()
