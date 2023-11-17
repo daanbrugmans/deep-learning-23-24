@@ -5,6 +5,7 @@ MNIST
 .idea
 .vscode
 checkpoints/
+emojis/
 
 # Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,python,jupyternotebooks
 # Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,python,jupyternotebooks
